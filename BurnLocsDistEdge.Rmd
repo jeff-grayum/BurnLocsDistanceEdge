@@ -77,7 +77,7 @@ points(summer_2022_burned_locs$easting,
        pch = 20, 
        cex = 0.5)
 
-#All points do appear to fall in burned areas!
+#All points do appear to fall in burned areas.
 ```
 
 Okay, now we will try to plot our points onto our land cover map, extract lcov type for each point, and filter out AG.
@@ -99,6 +99,8 @@ str(summer_2022_burned_locs_SPDF)
 plot(lcov, main = "Study site with Points") 
 plot(summer_2022_burned_locs_SPDF, add = TRUE, col = "red", pch = 20)
 
+#Double checking CRS is the same for SPDF and lcov before extracting covariates.
+identical(proj4string(summer_2022_burned_locs_SPDF), proj4string(lcov))
 
 #Extracting all lcov attributes
 lcov_values <- sp::over(summer_2022_burned_locs_SPDF, lcov)
@@ -113,7 +115,7 @@ summer_2022_burned_locs %>%
 
 
 #A lot of unnecessary columns. Let's refine and make it a tibble since its 2023. We'll also filter out points in AG.
-summer_2022_burned_locs <- summer_2022_burned_locs %>% 
+summer_2022_burned_locs_clean <- summer_2022_burned_locs %>% 
   filter(LCOV != "AG") %>% 
   as_tibble() %>%
   dplyr::select(title, date_creat, northing, easting, band_numb, trap_locat, LCOV)
@@ -142,4 +144,32 @@ points(x = summer_2022_burned_locs_clean$easting,
 #Looks like this worked. Points that fall in Ag have been filtered out and LCOV column is correct. This may be useful, later.
 ```
 
+```{r}
+# Load the required packages
+library(sf)
+library(dplyr)
+
+#Reading burn compartments in again, but as an sf object
+burn_compartments_2022 <- st_read("/Volumes/Samsung_T5/BOBWHITE_DATA/Maps/Burn_Compartments2022/2022_BurnUnits.shp")
+
+# Convert burn_compartments_2022 polygons to line geometries to represent their boundaries.
+burn_compartment_boundaries <- st_boundary(burn_compartments_2022)
+
+
+# Creating tibble of points to sf object
+summer_2022_burn_locs_clean_sf <- st_as_sf(summer_2022_burned_locs_clean, coords = c("easting", "northing"), crs = st_crs(burn_compartments_2022))
+
+# Calculating the distance from each point to the nearest line boundary of the burn compartments, storing it in matrix
+distance_matrix <- st_distance(summer_2022_burn_locs_clean_sf, burn_compartment_boundaries)
+
+# Applying the function min() to each row (1 does this) in the distance matrix
+min_distances <- apply(distance_matrix, 1, min)
+
+# Add the minimum distance to the original tibble as a new column
+summer_2022_burned_locs_clean$distance_to_edge <- min_distances
+
+#Printing
+print(summer_2022_burned_locs_clean)
+
+```
 
