@@ -1,0 +1,145 @@
+---
+title: "DistEdgeBurnLocs"
+output: html_document
+date: "2023-09-10"
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Loading libraries
+```{r}
+library(amt)
+library(terra)
+library(raster)
+library(ggthemes)
+library(scales)
+library(janitor)
+library(readxl)
+library(sp)
+theme_set(theme_minimal())
+```
+
+Importing points, and map of burned areas.
+```{r}
+#Importing points. Nesting birds have already been filtered out. Filtering for birds found in burned units (this attribute was added earlier in ArcGis)
+summer_2022_burned_locs <- read_xlsx("/Volumes/Samsung_T5/BOBWHITE_DATA/Clean/Sum2022BurnedDist.xlsx") %>%
+  clean_names() %>%
+  filter(burned == 1,
+         status != "D") 
+
+#Importing map of burned areas, summer 2022.
+burn_compartments_2022 <- raster::shapefile("/Volumes/Samsung_T5/BOBWHITE_DATA/Maps/Burn_Compartments2022/2022_BurnUnits.shp")
+
+lcov <- raster::shapefile("/Volumes/Samsung_T5/BOBWHITE_DATA/Maps/SimpLcovLumped/SimplifiedLCOV_LumpedAbbreviated.shp")
+```
+
+Lets plot these and make sure everything is looking alright.
+```{r}
+#Plotting landcover
+custom_palette_map <- c("AG" = "yellow", 
+                    "HW" = "brown",
+                    "NP" = "green",
+                    "WL" = "blue",
+                    "PP" = "darkgreen",
+                    "SS" = "gray",
+                    "UM" = "black")
+
+plot(lcov, col = custom_palette_map[lcov$LCOV], main = "Landcover with Points")
+
+#Adding points
+points(summer_2022_burned_locs$easting, 
+       summer_2022_burned_locs$northing, 
+       col = summer_2022_burned_locs$band_numb, 
+       pch = 20, 
+       cex = 0.5)
+
+#Here is an issue: Some of these points fall in AG, which was not actually burned (but within burned compartments). We must plot our points, extract covariates (lcov type) for each point, and filter out points in ag.
+
+#First, lets double check all points are within burn compartments
+#Let's plot to make sure...First we plot points (just a convenient way to set extent, since map of burn compartments is all of Ichauway)
+plot(summer_2022_burned_locs$easting, 
+       summer_2022_burned_locs$northing, 
+       col = summer_2022_burned_locs$band_numb, 
+       pch = 20, 
+       cex = 0.5)
+
+#Overlaying burn compartments. All points should disappear.
+plot(burn_compartments_2022, col = as.factor(burn_compartments_2022$BURNDATE), add = TRUE)
+
+#Adding points back in, to double check.
+points(summer_2022_burned_locs$easting, 
+       summer_2022_burned_locs$northing, 
+       col = summer_2022_burned_locs$band_numb, 
+       pch = 20, 
+       cex = 0.5)
+
+#All points do appear to fall in burned areas!
+```
+
+Okay, now we will try to plot our points onto our land cover map, extract lcov type for each point, and filter out AG.
+First, we will try using the SP package. 
+```{r}
+#Setting projection and CRS to NAD 1983 16N
+prj <- '+init=epsg:26916'
+CRS('+init=epsg:26916')
+proj4string(lcov) <- CRS("+init=epsg:26916") 
+
+
+#Creating spatial points data frame.
+summer_2022_burned_locs_SPDF <- SpatialPointsDataFrame(coordinates(cbind(summer_2022_burned_locs$easting, summer_2022_burned_locs$northing)), data = summer_2022_burned_locs, proj4string = CRS(prj))
+
+#Verifying structure
+str(summer_2022_burned_locs_SPDF)
+
+#Plotting landcover, adding points
+plot(lcov, main = "Study site with Points") 
+plot(summer_2022_burned_locs_SPDF, add = TRUE, col = "red", pch = 20)
+
+
+#Extracting all lcov attributes
+lcov_values <- sp::over(summer_2022_burned_locs_SPDF, lcov)
+
+# Addin column on original data frame that specifies which lcov type each point falls into. Only adding LCOV attribute (there are a lot)
+summer_2022_burned_locs$LCOV <- lcov_values$LCOV
+
+
+#Viewing data frame
+summer_2022_burned_locs %>%
+  view()
+
+
+#A lot of unnecessary columns. Let's refine and make it a tibble since its 2023. We'll also filter out points in AG.
+summer_2022_burned_locs <- summer_2022_burned_locs %>% 
+  filter(LCOV != "AG") %>% 
+  as_tibble() %>%
+  dplyr::select(title, date_creat, northing, easting, band_numb, trap_locat, LCOV)
+
+#Counting LCOV to make sure there is no AG.
+summer_2022_burned_locs %>%
+  count(LCOV, sort = TRUE)
+
+
+#Let's plot to make sure...
+plot(lcov, col = custom_palette_map[lcov$LCOV], main = "Landcover with Points (SP)")
+
+#Setting custom palette for points
+custom_palette_points <- c("HW" = "brown",
+                    "NP" = "green",
+                    "PP" = "darkgreen",
+                    "SS" = "gray")
+
+#This points should "disappear" if LCOV was extracted correctly.
+points(x = summer_2022_burned_locs_clean$easting, 
+       y = summer_2022_burned_locs_clean$northing, 
+       col = custom_palette_points[summer_2022_burned_locs_clean$LCOV], 
+       pch = 20, 
+       cex = 0.4)
+
+#Looks like this worked. Points that fall in Ag have been filtered out and LCOV column is correct. This may be useful, later.
+```
+
+
