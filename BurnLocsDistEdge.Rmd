@@ -152,17 +152,16 @@ library(dplyr)
 #Reading burn compartments in again, but as an sf object
 burn_compartments_2022 <- st_read("/Volumes/Samsung_T5/BOBWHITE_DATA/Maps/Burn_Compartments2022/2022_BurnUnits.shp")
 
-# Convert burn_compartments_2022 polygons to line geometries to represent their boundaries.
+# Converting burn_compartments_2022 polygons to line geometries that represent their boundaries. This is necessary to calc min distances later.
 burn_compartment_boundaries <- st_boundary(burn_compartments_2022)
 
-
-# Creating tibble of points to sf object
+# Converting tibble of points to an sf object
 summer_2022_burn_locs_clean_sf <- st_as_sf(summer_2022_burned_locs_clean, coords = c("easting", "northing"), crs = st_crs(burn_compartments_2022))
 
 # Calculating the distance from each point to the nearest line boundary of the burn compartments, storing it in matrix
 distance_matrix <- st_distance(summer_2022_burn_locs_clean_sf, burn_compartment_boundaries)
 
-# Applying the function min() to each row (1 does this) in the distance matrix
+# Applying the function min() to each row (1 does this -- we'd use 2 for columns) in the distance matrix
 min_distances <- apply(distance_matrix, 1, min)
 
 # Add the minimum distance to the original tibble as a new column
