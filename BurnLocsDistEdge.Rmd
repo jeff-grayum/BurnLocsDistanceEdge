@@ -198,6 +198,7 @@ summer_2022_burned_locs_clean %>%
 Let's try plotting DSF vs distance to edge with dist to edge data generated in R.
 ```{r}
 summer_2022_burned_locs_clean %>%
+  filter(date <= "2022-08-05") %>%
   ggplot(aes(DSF, distance_to_edge)) +
   geom_point() +
   geom_smooth() +
@@ -211,7 +212,7 @@ Not the relationship we were hoping to see. Let's try with distance to edge data
 ```{r}
 summer_2022_burned_locs_arc <- read_xlsx("/Volumes/Samsung_T5/BOBWHITE_DATA/Clean/summer_2022_burn_locs_wDTE_arc.xlsx") %>%
   mutate(date = as.Date(date)) %>%
-  filter(date < "2022-08-06")
+  filter(date <= "2022-08-06")
 
 head(summer_2022_burned_locs_arc)
 
@@ -233,10 +234,68 @@ summer_2022_burned_locs_arc %>%
        title = "Histogram: Distance to edge of burn compartments",
        subtitle = "Summer 2022")
 
+#Importing "fate" spreadsheet, which has sex and age-class associated with each band number (unlike daily locations data)
+fate <- rio::import("/Volumes/Samsung_T5/BOBWHITE_DATA/Clean/fate_clean_2021_22.xlsx", setclass = "tibble") %>%
+  clean_names() %>%
+  rename(band_numb = band_number)
 
+#Adding sex and age to each observation/recorded location.
+summer_2022_burned_locs_arc_age_sex <- summer_2022_burned_locs_arc %>%
+  left_join(fate %>% 
+              dplyr::select(band_numb, age, sex), by = "band_numb")
+
+summer_2022_burned_locs_arc_age_sex %>%
+  arrange(band_numb) %>%
+  view()
+
+summer_burned_locs_female <- summer_2022_burned_locs_arc_age_sex %>%
+  filter(sex == "F")
+
+summer_burned_locs_female %>%
+  ggplot(aes(DSF, NEAR_DIST)) +
+  geom_point() +
+  geom_smooth() +
+  labs(x = "DSF",
+       y = "Distance to edge",
+       title = "Hens: distance to edge of burn compartments following prescribed fire")
+
+summer_burned_locs_male <- summer_2022_burned_locs_arc_age_sex %>%
+  filter(sex == "M")
+
+summer_burned_locs_male %>%
+  ggplot(aes(DSF, NEAR_DIST)) +
+  geom_point() +
+  geom_smooth() +
+  labs(x = "DSF",
+       y = "Distance to edge",
+       title = "Males: distance to edge of burn compartments following prescribed fire")
+
+
+summer_burned_locs_adults <- summer_2022_burned_locs_arc_age_sex %>%
+  filter(age == "A")
+
+summer_burned_locs_adults %>%
+  ggplot(aes(DSF, NEAR_DIST)) +
+  geom_point() +
+  geom_smooth() +
+  labs(x = "DSF",
+       y = "Distance to edge",
+       title = "Adults: distance to edge of burn compartments following prescribed fire")
+
+summer_burned_locs_juvs <- summer_2022_burned_locs_arc_age_sex %>%
+  filter(age == "J")
+
+summer_burned_locs_juvs %>%
+  ggplot(aes(DSF, NEAR_DIST)) +
+  geom_point() +
+  geom_smooth() +
+  labs(x = "DSF",
+       y = "Distance to edge",
+       title = "Juveniles: distance to edge of burn compartments following prescribed fire")
 ```
 
 Lets run a mixed model and see if probability of locating a bobwhite in a burned area depends on DSF
+First, we must extract lcov for each point, and set any points in AG to "unburned".
 ```{r}
 #Importing locations with "burned" column (0 = unburned loc, 1 = burned loc), filtering out dead birds and for proper time frame.
 summer_2022_locs_burned_and_unburned <- read_xlsx("/Volumes/Samsung_T5/BOBWHITE_DATA/Clean/Sum2022BurnedDist.xlsx") %>%
@@ -296,31 +355,50 @@ custom_palette_points <- c("HW" = "brown",
                     "AG" = "yellow")
 
 #This points should "disappear" if LCOV was extracted correctly. 
-points(x = summer_2022_burned_locs_burned_and_unburned$easting, 
-       y = summer_2022_burned_locs_burned_and_unburned$northing, 
-       col = custom_palette_points[summer_2022_burned_locs_burned_and_unburned$LCOV], 
+points(x = summer_2022_locs_burned_and_unburned$easting, 
+       y = summer_2022_locs_burned_and_unburned$northing, 
+       col = custom_palette_points[summer_2022_locs_burned_and_unburned$LCOV], 
        pch = 20, 
-       cex = 0.3)
+       cex = 0.1)
 #This looks good
 
-#A lot of unnecessary columns. Let's refine and make it a tibble since its 2023.
-summer_2022_burned_locs_clean <- summer_2022_burned_locs %>% 
-  filter(LCOV != "AG") %>% 
+#A lot of unnecessary columns. Let's refine and make it a tibble since.
+summer_2022_locs_burned_and_unburned_clean <- summer_2022_locs_burned_and_unburned %>% 
   as_tibble() %>%
-  dplyr::select(title, date_creat, date, northing, easting, band_numb, trap_locat, LCOV) %>%
+  dplyr::select(title, date_creat, date, northing, easting, band_numb, trap_locat, burned, LCOV) %>%
   rename(date_created = date_creat)
 
+#Quick look
+head(summer_2022_locs_burned_and_unburned_clean)
 
+#Counting
+summer_2022_locs_burned_and_unburned_clean %>% 
+  count(burned, LCOV, sort = T)
 
-summer_2022_burned_locs_burned_and_unburned$DSF = as.numeric(summer_2022_burned_locs_burned_and_unburned$date - burn_date_2022)
+#writing an expression so all points that fall into AG are unburned.
+summer_2022_locs_burned_and_unburned_clean <- summer_2022_locs_burned_and_unburned_clean %>%
+  mutate(burned = ifelse(LCOV == "AG", 0, burned))
 
-summer_2022_burned_locs_burned_and_unburned %>%
+#Counting again to make sure that worked.
+#Looks good.
+summer_2022_locs_burned_and_unburned_clean %>% 
+  count(burned, LCOV, sort = T)
+
+```
+
+Adding a days since fire (DSF column), running mixed model, and viewing summary.
+```{r}
+summer_2022_locs_burned_and_unburned_clean$DSF = as.numeric(summer_2022_locs_burned_and_unburned_clean$date - burn_date_2022)
+
+summer_2022_locs_burned_and_unburned_clean %>%
   arrange(DSF) %>%
   view()
 
+#write_xlsx(summer_2022_locs_burned_and_unburned_clean, "/Volumes/Samsung_T5/BOBWHITE_DATA/Clean/summer_2022_locs_burned_and_unburned_clean.xlsx")
+
 #Fitting glm
 prob_burned_area <- glmer(burned ~ DSF + (1|band_numb),
-                 data = summer_2022_burned_locs_burned_and_unburned,
+                 data = summer_2022_locs_burned_and_unburned_clean,
                  na.action = "na.pass",
                  family = "binomial")
  
