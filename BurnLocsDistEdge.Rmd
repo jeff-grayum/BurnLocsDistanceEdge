@@ -23,6 +23,7 @@ library(sp)
 library(lubridate)
 library(writexl)
 library(sf)
+library(lme4)
 theme_set(theme_minimal())
 ```
 
@@ -223,21 +224,107 @@ summer_2022_burned_locs_arc %>%
   labs(x = "DSF",
        y = "Distance to edge",
        title = "Distance to edge of burn compartments following prescribed fire")
+
+summer_2022_burned_locs_arc %>%
+  ggplot(aes(NEAR_DIST)) +
+  geom_histogram(binwidth = 10) +
+  labs(x = "Distance to edge (m)",
+       y = "",
+       title = "Histogram: Distance to edge of burn compartments",
+       subtitle = "Summer 2022")
+
+
 ```
 
-Lets run a mix-ed model and see if probability of locating a bobwhite in a burned area depends on DSF
+Lets run a mixed model and see if probability of locating a bobwhite in a burned area depends on DSF
 ```{r}
-summer_2022_burned_locs_burned_and_unburned <- read_xlsx("/Volumes/Samsung_T5/BOBWHITE_DATA/Clean/Sum2022BurnedDist.xlsx") %>%
+#Importing locations with "burned" column (0 = unburned loc, 1 = burned loc), filtering out dead birds and for proper time frame.
+summer_2022_locs_burned_and_unburned <- read_xlsx("/Volumes/Samsung_T5/BOBWHITE_DATA/Clean/Sum2022BurnedDist.xlsx") %>%
   clean_names() %>%
   filter(status != "D") %>%
   mutate(date = as.Date(date)) %>%
   filter(date <= "2022-08-05",
          date >= "2022-04-11")
 
+#Counting burned and unburned locations.
+summer_2022_locs_burned_and_unburned %>% 
+  count(burned)
+
+#Once again, we need to plot points and add LCOV to filter out AG.
+#Setting projections
+prj <- '+init=epsg:26916'
+CRS('+init=epsg:26916')
+proj4string(lcov) <- CRS("+init=epsg:26916") 
+
+
+#Creating spatial points data frame of burned and unburned points.
+summer_2022_locs_burned_unburned_SPDF <- SpatialPointsDataFrame(coordinates(cbind(summer_2022_locs_burned_and_unburned$easting, summer_2022_locs_burned_and_unburned$northing)), data = summer_2022_locs_burned_and_unburned, proj4string = CRS(prj))
+
+#Verifying structure
+str(summer_2022_locs_burned_unburned_SPDF)
+
+#Plotting landcover, adding points. Not sure is this is necessary before running sp::over()...
+plot(lcov, main = "Study site with Points") 
+plot(summer_2022_locs_burned_unburned_SPDF, add = TRUE, col = "red", pch = 20)
+
+#Double checking CRS is the same for SPDF and lcov before extracting covariates.
+identical(proj4string(summer_2022_locs_burned_unburned_SPDF), proj4string(lcov))
+
+#Extracting all lcov attributes
+lcov_values_burned_unburned <- sp::over(summer_2022_locs_burned_unburned_SPDF, lcov)
+
+# Adding column on original data frame that specifies which lcov type each point falls into. Only adding LCOV attribute (there are a lot)
+summer_2022_locs_burned_and_unburned$LCOV <- lcov_values_burned_unburned$LCOV
+
+
+#Viewing data frame
+summer_2022_locs_burned_and_unburned %>%
+  view()
+
+#Counting LCOV types
+summer_2022_locs_burned_and_unburned %>%
+  count(LCOV, sort = TRUE)
+
+#Let's plot to make sure this worked.
+plot(lcov, col = custom_palette_map[lcov$LCOV], main = "Landcover with Points")
+
+#Setting custom palette for points. We'll set AG to red for contrast.
+custom_palette_points <- c("HW" = "brown",
+                    "NP" = "green",
+                    "PP" = "darkgreen",
+                    "SS" = "gray",
+                    "AG" = "yellow")
+
+#This points should "disappear" if LCOV was extracted correctly. 
+points(x = summer_2022_burned_locs_burned_and_unburned$easting, 
+       y = summer_2022_burned_locs_burned_and_unburned$northing, 
+       col = custom_palette_points[summer_2022_burned_locs_burned_and_unburned$LCOV], 
+       pch = 20, 
+       cex = 0.3)
+#This looks good
+
+#A lot of unnecessary columns. Let's refine and make it a tibble since its 2023.
+summer_2022_burned_locs_clean <- summer_2022_burned_locs %>% 
+  filter(LCOV != "AG") %>% 
+  as_tibble() %>%
+  dplyr::select(title, date_creat, date, northing, easting, band_numb, trap_locat, LCOV) %>%
+  rename(date_created = date_creat)
+
+
+
 summer_2022_burned_locs_burned_and_unburned$DSF = as.numeric(summer_2022_burned_locs_burned_and_unburned$date - burn_date_2022)
 
 summer_2022_burned_locs_burned_and_unburned %>%
   arrange(DSF) %>%
   view()
+
+#Fitting glm
+prob_burned_area <- glmer(burned ~ DSF + (1|band_numb),
+                 data = summer_2022_burned_locs_burned_and_unburned,
+                 na.action = "na.pass",
+                 family = "binomial")
+ 
+#Viewing summary 
+summary(prob_burned_area) 
 ```
 
