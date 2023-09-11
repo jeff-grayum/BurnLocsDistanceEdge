@@ -20,6 +20,8 @@ library(scales)
 library(janitor)
 library(readxl)
 library(sp)
+library(lubridate)
+library(writexl)
 theme_set(theme_minimal())
 ```
 
@@ -57,7 +59,7 @@ points(summer_2022_burned_locs$easting,
        pch = 20, 
        cex = 0.5)
 
-#Here is an issue: Some of these points fall in AG, which was not actually burned (but within burned compartments). We must plot our points, extract covariates (lcov type) for each point, and filter out points in ag.
+#HERE IS AN ISSUE: Some of these points fall in AG, which was not actually burned (but within burn compartments). We must plot our points, extract covariates (lcov type) for each point, and filter out points in AG.
 
 #First, lets double check all points are within burn compartments
 #Let's plot to make sure...First we plot points (just a convenient way to set extent, since map of burn compartments is all of Ichauway)
@@ -95,7 +97,7 @@ summer_2022_burned_locs_SPDF <- SpatialPointsDataFrame(coordinates(cbind(summer_
 #Verifying structure
 str(summer_2022_burned_locs_SPDF)
 
-#Plotting landcover, adding points
+#Plotting landcover, adding points. Not sure is this is necessary before running sp::over()...
 plot(lcov, main = "Study site with Points") 
 plot(summer_2022_burned_locs_SPDF, add = TRUE, col = "red", pch = 20)
 
@@ -105,7 +107,7 @@ identical(proj4string(summer_2022_burned_locs_SPDF), proj4string(lcov))
 #Extracting all lcov attributes
 lcov_values <- sp::over(summer_2022_burned_locs_SPDF, lcov)
 
-# Addin column on original data frame that specifies which lcov type each point falls into. Only adding LCOV attribute (there are a lot)
+# Adding column on original data frame that specifies which lcov type each point falls into. Only adding LCOV attribute (there are a lot)
 summer_2022_burned_locs$LCOV <- lcov_values$LCOV
 
 
@@ -113,42 +115,48 @@ summer_2022_burned_locs$LCOV <- lcov_values$LCOV
 summer_2022_burned_locs %>%
   view()
 
-
-#A lot of unnecessary columns. Let's refine and make it a tibble since its 2023. We'll also filter out points in AG.
-summer_2022_burned_locs_clean <- summer_2022_burned_locs %>% 
-  filter(LCOV != "AG") %>% 
-  as_tibble() %>%
-  dplyr::select(title, date_creat, northing, easting, band_numb, trap_locat, LCOV)
-
-#Counting LCOV to make sure there is no AG.
+#Counting LCOV types
 summer_2022_burned_locs %>%
   count(LCOV, sort = TRUE)
 
-
-#Let's plot to make sure...
+#Let's plot to make sure this worked.
 plot(lcov, col = custom_palette_map[lcov$LCOV], main = "Landcover with Points (SP)")
 
-#Setting custom palette for points
+#Setting custom palette for points. We'll set AG to red for contrast.
 custom_palette_points <- c("HW" = "brown",
                     "NP" = "green",
                     "PP" = "darkgreen",
-                    "SS" = "gray")
+                    "SS" = "gray",
+                    "AG" = "red")
 
-#This points should "disappear" if LCOV was extracted correctly.
-points(x = summer_2022_burned_locs_clean$easting, 
-       y = summer_2022_burned_locs_clean$northing, 
-       col = custom_palette_points[summer_2022_burned_locs_clean$LCOV], 
+#This points should "disappear" if LCOV was extracted correctly. AG will be the exception and contrast with background.
+points(x = summer_2022_burned_locs$easting, 
+       y = summer_2022_burned_locs$northing, 
+       col = custom_palette_points[summer_2022_burned_locs$LCOV], 
        pch = 20, 
-       cex = 0.4)
+       cex = 0.3)
+
+#LCOV attribute appears to have been added accurately.
+
+
+#Filtering out points located in AG. A lot of unnecessary columns. Let's refine and make it a tibble since its 2023.
+summer_2022_burned_locs_clean <- summer_2022_burned_locs %>% 
+  filter(LCOV != "AG") %>% 
+  as_tibble() %>%
+  dplyr::select(title, date_creat, date, northing, easting, band_numb, trap_locat, LCOV) %>%
+  rename(date_created = date_creat)
+
+#Counting LCOV to make sure there is no AG.
+summer_2022_burned_locs_clean %>%
+ count(LCOV, sort = TRUE)
+
 
 #Looks like this worked. Points that fall in Ag have been filtered out and LCOV column is correct. This may be useful, later.
+#Exporting this as an .xlsx
+#write_xlsx(summer_2022_burned_locs_clean, "/Volumes/Samsung_T5/BOBWHITE_DATA/Clean/summer_2022_burned_locs_clean.xlsx")
 ```
 
 ```{r}
-# Load the required packages
-library(sf)
-library(dplyr)
-
 #Reading burn compartments in again, but as an sf object
 burn_compartments_2022 <- st_read("/Volumes/Samsung_T5/BOBWHITE_DATA/Maps/Burn_Compartments2022/2022_BurnUnits.shp")
 
@@ -169,6 +177,32 @@ summer_2022_burned_locs_clean$distance_to_edge <- min_distances
 
 #Printing
 print(summer_2022_burned_locs_clean)
-
 ```
+
+Let's add a days since fire (DSF) column.
+```{r}
+summer_2022_burned_locs_clean <- summer_2022_burned_locs_clean %>%
+  mutate(date = ymd(date))
+
+burn_date_2022 <- ymd("2022-04-11")
+
+summer_2022_burned_locs_clean$DSF <- as.numeric(summer_2022_burned_locs_clean$date - burn_date_2022)
+
+summer_2022_burned_locs_clean %>%
+  arrange(DSF)%>%
+  view()
+```
+
+Let's try plotting DSF vs distance to edge
+```{r}
+summer_2022_burned_locs_clean %>%
+  ggplot(aes(DSF, distance_to_edge)) +
+  geom_point() +
+  geom_smooth() +
+  labs(x = "DSF",
+       y = "Distance to edge",
+       title = "Distance to edge over time",
+       subtitle = "Only looking at NOBO located in burn compartments")
+```
+
 
