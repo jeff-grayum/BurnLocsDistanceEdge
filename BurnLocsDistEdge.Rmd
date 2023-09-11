@@ -22,6 +22,7 @@ library(readxl)
 library(sp)
 library(lubridate)
 library(writexl)
+library(sf)
 theme_set(theme_minimal())
 ```
 
@@ -193,7 +194,7 @@ summer_2022_burned_locs_clean %>%
   view()
 ```
 
-Let's try plotting DSF vs distance to edge
+Let's try plotting DSF vs distance to edge with dist to edge data generated in R.
 ```{r}
 summer_2022_burned_locs_clean %>%
   ggplot(aes(DSF, distance_to_edge)) +
@@ -205,4 +206,38 @@ summer_2022_burned_locs_clean %>%
        subtitle = "Only looking at NOBO located in burn compartments")
 ```
 
+Not the relationship we were hoping to see. Let's try with distance to edge data that was generated in ArcMap
+```{r}
+summer_2022_burned_locs_arc <- read_xlsx("/Volumes/Samsung_T5/BOBWHITE_DATA/Clean/summer_2022_burn_locs_wDTE_arc.xlsx") %>%
+  mutate(date = as.Date(date)) %>%
+  filter(date < "2022-08-06")
+
+head(summer_2022_burned_locs_arc)
+
+summer_2022_burned_locs_arc$DSF <- as.numeric(summer_2022_burned_locs_arc$date - burn_date_2022) 
+
+summer_2022_burned_locs_arc %>%
+  ggplot(aes(DSF, NEAR_DIST)) +
+  geom_point() +
+  geom_smooth() +
+  labs(x = "DSF",
+       y = "Distance to edge",
+       title = "Distance to edge of burn compartments following prescribed fire")
+```
+
+Lets run a mix-ed model and see if probability of locating a bobwhite in a burned area depends on DSF
+```{r}
+summer_2022_burned_locs_burned_and_unburned <- read_xlsx("/Volumes/Samsung_T5/BOBWHITE_DATA/Clean/Sum2022BurnedDist.xlsx") %>%
+  clean_names() %>%
+  filter(status != "D") %>%
+  mutate(date = as.Date(date)) %>%
+  filter(date <= "2022-08-05",
+         date >= "2022-04-11")
+
+summer_2022_burned_locs_burned_and_unburned$DSF = as.numeric(summer_2022_burned_locs_burned_and_unburned$date - burn_date_2022)
+
+summer_2022_burned_locs_burned_and_unburned %>%
+  arrange(DSF) %>%
+  view()
+```
 
